@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { login } from '../fixtures/auth';
 import {
   kubectl,
@@ -6,6 +6,7 @@ import {
   deleteNamespace,
   getResource,
   waitForCondition,
+  applyYaml,
 } from '../fixtures/k8s';
 
 const username = 'kubeadmin';
@@ -14,6 +15,35 @@ const password = process.env.KUBEADMIN_PASSWORD || 'kubeadmin';
 const BROKERSERVICE_API = 'broker.arkmq.org/v1beta2';
 const TEST_NAMESPACE = 'broker-service-e2e';
 const SERVICE_NAME = 'test-broker';
+
+const BROKERSERVICE_LIST_PATH = (namespace: string) =>
+  `/k8s/ns/${namespace}/broker.arkmq.org~v1beta2~BrokerService`;
+
+async function gotoBrokerServiceList(page: Page, namespace: string) {
+  await page.goto(BROKERSERVICE_LIST_PATH(namespace), { waitUntil: 'load' });
+  await page.waitForURL(`**${BROKERSERVICE_LIST_PATH(namespace)}**`, { timeout: 30000 });
+  await expect(page.getByRole('link', { name: 'Create BrokerService' })).toBeVisible({
+    timeout: 30000,
+  });
+}
+
+function brokerServiceYaml(name: string, namespace: string, labels?: Record<string, string>) {
+  const labelLines = labels
+    ? Object.entries(labels).map(([key, value]) => `    ${key}: ${value}`)
+    : [];
+  return [
+    `apiVersion: ${BROKERSERVICE_API}`,
+    'kind: BrokerService',
+    'metadata:',
+    `  name: ${name}`,
+    `  namespace: ${namespace}`,
+    ...(labelLines.length > 0 ? ['  labels:', ...labelLines] : []),
+    'spec:',
+    '  resources:',
+    '    limits:',
+    '      memory: 2Gi',
+  ].join('\n');
+}
 
 test.describe('BrokerService Creation Form', () => {
   test.beforeAll(() => {
@@ -166,5 +196,78 @@ test.describe('BrokerService Creation Form', () => {
     expect(spec.resources?.limits?.memory).toBe('512Mi');
 
     console.log(`\n✓ BrokerService ${yamlServiceName} created via YAML with memory=512Mi`);
+  });
+});
+
+test.describe('BrokerService List Page', () => {
+  const LIST_NAMESPACE = 'broker-service-list-e2e';
+  const LIST_SERVICE_NAME = 'list-test-broker';
+
+  test.beforeAll(() => {
+    createNamespace(LIST_NAMESPACE);
+    console.log('\nStarting BrokerService List Page tests\n');
+  });
+
+  test.afterAll(() => {
+    kubectl(`delete brokerservice --all -n ${LIST_NAMESPACE}`, { ignoreError: true });
+    deleteNamespace(LIST_NAMESPACE);
+    console.log('\nList page cleanup complete\n');
+  });
+
+  test.afterEach(() => {
+    kubectl(`delete brokerservice --all -n ${LIST_NAMESPACE}`, { ignoreError: true });
+  });
+
+  test('loads custom BrokerService list page', async ({ page }) => {
+    await login(page, username, password);
+    await gotoBrokerServiceList(page, LIST_NAMESPACE);
+
+    await expect(page.getByText('No BrokerServices found')).toBeVisible();
+  });
+
+  test('displays BrokerService created on cluster in list', async ({ page }) => {
+    applyYaml(brokerServiceYaml(LIST_SERVICE_NAME, LIST_NAMESPACE, { tier: 'e2e' }));
+    await waitForCondition(
+      'brokerservice',
+      LIST_SERVICE_NAME,
+      LIST_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+    await gotoBrokerServiceList(page, LIST_NAMESPACE);
+
+    await expect(
+      page.locator(`[data-test="broker-service-link-${LIST_NAMESPACE}-${LIST_SERVICE_NAME}"]`),
+    ).toBeVisible({ timeout: 30000 });
+    await expect(
+      page.locator(`[data-test="broker-service-status-${LIST_NAMESPACE}-${LIST_SERVICE_NAME}"]`),
+    ).toBeVisible();
+  });
+
+  test('navigates to details when name link is clicked', async ({ page }) => {
+    applyYaml(brokerServiceYaml(LIST_SERVICE_NAME, LIST_NAMESPACE));
+    await waitForCondition(
+      'brokerservice',
+      LIST_SERVICE_NAME,
+      LIST_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+    await gotoBrokerServiceList(page, LIST_NAMESPACE);
+
+    await page
+      .locator(`[data-test="broker-service-link-${LIST_NAMESPACE}-${LIST_SERVICE_NAME}"]`)
+      .click();
+    await page.waitForURL(
+      new RegExp(`/k8s/ns/${LIST_NAMESPACE}/.*${LIST_SERVICE_NAME}(?!.*~new)`),
+      { timeout: 30000 },
+    );
+    await expect(page.locator('h1')).toContainText(LIST_SERVICE_NAME);
   });
 });
