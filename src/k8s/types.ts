@@ -24,6 +24,20 @@ export type BrokerAppCR = K8sResourceCommon & {
   spec: BrokerAppSpec;
 };
 
+export enum K8sResourceConditionStatus {
+  True = 'True',
+  False = 'False',
+  Unknown = 'Unknown',
+}
+
+export interface K8sResourceCondition {
+  type: string;
+  status: K8sResourceConditionStatus;
+  lastTransitionTime?: string;
+  reason?: string;
+  message?: string;
+}
+
 export interface BrokerServiceSpec {
   resources?: {
     limits?: {
@@ -39,12 +53,6 @@ export interface BrokerServiceSpec {
 export type BrokerService = K8sResourceCommon & {
   spec?: BrokerServiceSpec;
   status?: {
-    conditions?: {
-      type: string;
-      status: string;
-      lastTransitionTime?: string;
-      reason?: string;
-      message?: string;
-    }[];
+    conditions?: K8sResourceCondition[];
   };
 };
