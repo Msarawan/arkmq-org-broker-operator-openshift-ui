@@ -15,6 +15,7 @@ const config: Config = {
       },
     ],
   },
+  transformIgnorePatterns: ['/node_modules/(?!(@patternfly)/)'],
   moduleNameMapper: {
     '^.+\\.(css|sass|scss)$': '<rootDir>/__mocks__/styleMock.ts',
     '@openshift-console/(.*)': '<rootDir>/__mocks__/dynamic-plugin-sdk.ts',
