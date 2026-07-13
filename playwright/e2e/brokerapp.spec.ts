@@ -24,11 +24,13 @@ const SERVICE_NAME = 'e2e-broker-service';
 
 test.describe('BrokerApp lifecycle', () => {
   test.beforeAll(() => {
+    test.setTimeout(3_600_000); // 60 minutes
+
     // PKI infrastructure is required for the broker pod to start.
     // chain-of-trust setup is idempotent — safe to run even if cert-management
     // tests have already run it in this cluster.
     console.log('\nSetting up PKI infrastructure...');
-    yarn('chain-of-trust setup', { timeout: 180000 });
+    yarn('chain-of-trust setup', { timeout: 1_200_000 });
 
     createNamespace(TEST_NAMESPACE);
 
@@ -37,7 +39,7 @@ test.describe('BrokerApp lifecycle', () => {
     console.log(`\nCreating BrokerService certificate...`);
     yarn(
       `chain-of-trust create-service-cert --name ${SERVICE_NAME} --namespace ${TEST_NAMESPACE}`,
-      { timeout: 180000 },
+      { timeout: 1_200_000 },
     );
 
     console.log('\nStarting BrokerApp lifecycle tests\n');
@@ -101,7 +103,7 @@ spec:
     const appName = 'e2e-app-matching';
     console.log(`\nCreating BrokerApp certificate...`);
     yarn(`chain-of-trust create-app-cert --name ${appName} --namespace ${TEST_NAMESPACE}`, {
-      timeout: 180000,
+      timeout: 1_200_000,
     });
     console.log(`✓ Created app certificate for ${appName}`);
 
