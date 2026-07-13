@@ -12,16 +12,84 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 
 /**
- * Apply YAML content using kubectl
+ * Detects kubectl failures caused by an unavailable cert-manager or trust-manager admission webhook.
+ * Common in GitHub Actions e2e runs when webhook pods are restarting or endpoints are not yet registered.
  */
-async function applyYaml(yaml) {
-  const escapedYaml = yaml.replace(/'/g, "'\\''");
-  const { stdout, stderr } = await execAsync(`echo '${escapedYaml}' | kubectl apply -f -`);
-  if (stderr && !stderr.includes('created') && !stderr.includes('configured')) {
-    console.error('kubectl stderr:', stderr);
+function isWebhookUnavailableError(error) {
+  const message = [error.message, error.stderr, error.stdout].filter(Boolean).join(' ');
+  return (
+    message.includes('cert-manager-webhook') ||
+    message.includes('trust.cert-manager.io') ||
+    message.includes('trust-manager') ||
+    message.includes('no endpoints available for service')
+  );
+}
+
+/** Waits until a cert-manager namespace webhook Deployment has ready endpoints. */
+async function waitForWebhook(serviceName, timeoutMs = 600000) {
+  console.log(`⏳ Waiting for ${serviceName} webhook to be available...`);
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const { stdout: endpoints } = await execAsync(
+        `kubectl get endpoints ${serviceName} -n cert-manager -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null`,
+      );
+      const { stdout: availableReplicas } = await execAsync(
+        `kubectl get deployment ${serviceName} -n cert-manager -o jsonpath='{.status.availableReplicas}' 2>/dev/null`,
+      );
+      if (endpoints.trim().length > 0 && parseInt(availableReplicas.trim(), 10) > 0) {
+        console.log(`✓ ${serviceName} webhook is available`);
+        return;
+      }
+    } catch (error) {
+      // Webhook may not exist yet while polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  if (stdout) {
-    console.log(stdout.trim());
+
+  throw new Error(`Timeout waiting for ${serviceName} webhook to be available`);
+}
+
+/** Reads a kubectl apply error and waits until the matching admission webhook is ready. */
+async function waitForWebhookFromError(error) {
+  const message = [error.message, error.stderr, error.stdout].filter(Boolean).join(' ');
+  const serviceName =
+    message.includes('trust.cert-manager.io') || message.includes('trust-manager')
+      ? 'trust-manager'
+      : 'cert-manager-webhook';
+  await waitForWebhook(serviceName);
+}
+
+/**
+ * Apply YAML content using kubectl, retrying when admission webhooks are temporarily down.
+ */
+async function applyYaml(yaml, options = {}) {
+  const maxRetries = options.maxRetries ?? 10;
+  const retryDelayMs = options.retryDelayMs ?? 10000;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const escapedYaml = yaml.replace(/'/g, "'\\''");
+    try {
+      const { stdout, stderr } = await execAsync(`echo '${escapedYaml}' | kubectl apply -f -`);
+      if (stderr && !stderr.includes('created') && !stderr.includes('configured')) {
+        console.error('kubectl stderr:', stderr);
+      }
+      if (stdout) {
+        console.log(stdout.trim());
+      }
+      return;
+    } catch (error) {
+      if (isWebhookUnavailableError(error) && attempt < maxRetries) {
+        console.log(
+          `⚠️  webhook unavailable (attempt ${attempt}/${maxRetries}), retrying in ${retryDelayMs / 1000}s...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        await waitForWebhookFromError(error);
+        continue;
+      }
+      throw error;
+    }
   }
 }
 
@@ -80,7 +148,7 @@ async function waitForCertificate(namespace, certName, timeoutMs = 300000) {
 /**
  * Wait for a secret to exist in a namespace
  */
-async function waitForSecret(namespace, secretName, timeoutMs = 60000) {
+async function waitForSecret(namespace, secretName, timeoutMs = 600000) {
   console.log(`⏳ Waiting for Secret ${secretName} in namespace ${namespace}...`);
   const startTime = Date.now();
 
@@ -101,7 +169,7 @@ async function waitForSecret(namespace, secretName, timeoutMs = 60000) {
 /**
  * Wait for a Bundle to be Synced
  */
-async function waitForBundle(bundleName, timeoutMs = 300000) {
+async function waitForBundle(bundleName, timeoutMs = 600000) {
   console.log(`⏳ Waiting for Bundle ${bundleName} to be Synced...`);
   const startTime = Date.now();
 

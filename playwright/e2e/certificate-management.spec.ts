@@ -30,12 +30,11 @@ test.describe('Certificate Management E2E', () => {
   });
 
   test('complete workflow: setup, deploy, and cleanup', async () => {
-    // Playwright default is 8 min; this workflow needs up to ~30 min on CRC CI.
-    test.setTimeout(1_800_000); // 30 minutes
+    test.setTimeout(3_600_000); // 60 minutes
 
     // Step 1: Setup PKI infrastructure
     console.log('\n📦 Step 1: Setting up PKI infrastructure...');
-    const setupOutput = yarn('chain-of-trust setup', { timeout: 180000 });
+    const setupOutput = yarn('chain-of-trust setup', { timeout: 1_200_000 });
     expect(setupOutput).toContain('Chain of Trust Setup Complete');
     expect(setupOutput).toContain('ClusterIssuer: root-issuer');
     expect(setupOutput).toContain('ClusterIssuer: broker-ca-issuer');
@@ -67,7 +66,7 @@ test.describe('Certificate Management E2E', () => {
     console.log('\n📦 Step 3: Creating BrokerService certificate...');
     const serviceCertOutput = yarn(
       `chain-of-trust create-service-cert --name ${SERVICE_NAME} --namespace ${TEST_NAMESPACE}`,
-      { timeout: 180000 },
+      { timeout: 1_200_000 },
     );
     expect(serviceCertOutput).toContain('BrokerService Certificate Created');
     expect(serviceCertOutput).toContain(`${SERVICE_NAME}-broker-cert`);
@@ -108,7 +107,7 @@ spec:
 
     // Wait for broker pod to be running (longer timeout for CI image pulls)
     console.log('\n⏳ Waiting for broker pod to be ready...');
-    await waitForPod(`${SERVICE_NAME}-ss-0`, TEST_NAMESPACE, 600000);
+    await waitForPod(`${SERVICE_NAME}-ss-0`, TEST_NAMESPACE, 1_800_000);
 
     // Wait for BrokerService to be deployed
     console.log('\n⏳ Waiting for BrokerService to be deployed...');
@@ -118,14 +117,14 @@ spec:
       TEST_NAMESPACE,
       'Deployed',
       'True',
-      600000,
+      1_800_000,
     );
 
     // Step 5: Create BrokerApp certificates
     console.log('\n📦 Step 5: Creating BrokerApp certificate...');
     const appCertOutput = yarn(
       `chain-of-trust create-app-cert --name ${APP_NAME} --namespace ${TEST_NAMESPACE}`,
-      { timeout: 180000 },
+      { timeout: 1_200_000 },
     );
     expect(appCertOutput).toContain('BrokerApp Certificate Created');
     expect(appCertOutput).toContain(`${APP_NAME}-app-cert`);
@@ -159,7 +158,7 @@ spec:
 
     // Wait for BrokerApp to be provisioned on the broker (acceptor + JAAS config active)
     console.log('\n⏳ Waiting for BrokerApp to be provisioned on the broker...');
-    await waitForCondition('brokerapp', APP_NAME, TEST_NAMESPACE, 'Deployed', 'True', 600000);
+    await waitForCondition('brokerapp', APP_NAME, TEST_NAMESPACE, 'Deployed', 'True', 900000);
 
     // Verify binding secret was created
     console.log('\n✓ Verifying app binding secret...');
@@ -248,7 +247,7 @@ spec:
   backoffLimit: 2
   template:
     spec:
-      activeDeadlineSeconds: 300
+      activeDeadlineSeconds: 900
       restartPolicy: Never
       containers:
       - name: producer
@@ -282,7 +281,7 @@ ${bindingSecretEnv}
     applyYaml(producerJobYaml);
 
     console.log('\n⏳ Waiting for producer job to complete...');
-    await waitForJob(`${APP_NAME}-producer`, TEST_NAMESPACE, 300000);
+    await waitForJob(`${APP_NAME}-producer`, TEST_NAMESPACE, 900000);
     console.log('  ✓ Producer sent message successfully');
 
     // Step 11: Run consumer job
@@ -298,7 +297,7 @@ spec:
   backoffLimit: 2
   template:
     spec:
-      activeDeadlineSeconds: 180
+      activeDeadlineSeconds: 900
       restartPolicy: Never
       containers:
       - name: consumer
@@ -333,7 +332,7 @@ ${bindingSecretEnv}
 
     // Step 12: Verify message round-trip
     console.log('\n📦 Step 12: Waiting for consumer job to complete...');
-    await waitForJob(`${APP_NAME}-consumer`, TEST_NAMESPACE, 300000);
+    await waitForJob(`${APP_NAME}-consumer`, TEST_NAMESPACE, 900000);
     const consumerLogs = kubectl(`logs -l job-name=${APP_NAME}-consumer -n ${TEST_NAMESPACE}`, {
       ignoreError: true,
     });

@@ -183,6 +183,17 @@ jobs:
           oc apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
           oc wait pod --all --for=condition=Ready --namespace=cert-manager --timeout=30m
 
+      - name: Wait for cert-manager webhook endpoint
+        run: |
+          echo "Waiting for cert-manager-webhook endpoint to be registered..."
+          timeout 600 bash -c '
+            until kubectl get endpoints cert-manager-webhook -n cert-manager \
+                  -o jsonpath="{.subsets[*].addresses[*].ip}" 2>/dev/null | grep -q "[0-9]"; do
+              echo "  cert-manager-webhook endpoint not ready, retrying in 5s..."
+              sleep 5
+            done'
+          echo "✓ cert-manager-webhook endpoint is ready"
+
       - name: Install trust-manager
         run: |
           helm repo add jetstack https://charts.jetstack.io --force-update
@@ -192,6 +203,17 @@ jobs:
             --set secretTargets.authorizedSecretsAll=true\
             --wait  \
             --timeout 30m
+
+      - name: Wait for trust-manager webhook endpoint
+        run: |
+          echo "Waiting for trust-manager webhook endpoint to be registered..."
+          timeout 600 bash -c '
+            until kubectl get endpoints trust-manager -n cert-manager \
+                  -o jsonpath="{.subsets[*].addresses[*].ip}" 2>/dev/null | grep -q "[0-9]"; do
+              echo "  trust-manager endpoint not ready, retrying in 5s..."
+              sleep 5
+            done'
+          echo "✓ trust-manager webhook endpoint is ready"
 
       - name: Install ActiveMQ Artemis Broker Operator
         run: |
@@ -251,15 +273,15 @@ jobs:
           df -h
           echo "=== Ready for test runs ==="
 
-      - name: Run Playwright tests for console version 4.22
+      - name: Run Playwright tests for console version 4.22.0
         env:
           KUBEADMIN_PASSWORD: ${{ steps.get_password.outputs.password }}
         run: |
           ./test_utils/prepare_env.sh
-          yarn start-console "4.22" &
+          yarn start-console "4.22.0" &
           ./test_utils/wait_console.sh
           yarn pw:test
-          export CONSOLE_CONTAINER=$(docker ps -aq --filter ancestor=quay.io/openshift/origin-console:4.22)
+          export CONSOLE_CONTAINER=$(docker ps -aq --filter ancestor=quay.io/openshift/origin-console:4.22.0)
           ./test_utils/teardown.sh
 
       - name: Upload Playwright test results on failure
