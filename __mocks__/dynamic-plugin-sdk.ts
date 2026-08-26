@@ -25,6 +25,7 @@ export const DocumentTitle: FC<{ children: ReactNode }> = ({ children }) =>
 export const ListPageHeader: FC<{
   title: string;
   children?: ReactNode;
+  hideFavoriteButton?: boolean;
 }> = ({ title, children }) =>
   createElement('div', { 'data-test': 'list-page-header' }, title, children);
 

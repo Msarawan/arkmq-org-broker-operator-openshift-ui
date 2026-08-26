@@ -363,6 +363,9 @@ test.describe('BrokerService Details Page', () => {
     await page.getByRole('tab', { name: 'YAML' }).click();
     await expect(page.locator('[data-test="broker-service-yaml-tab"]')).toBeVisible();
 
+    await page.getByRole('tab', { name: 'Resources' }).click();
+    await expect(page.locator('[data-test="broker-service-resources-tab"]')).toBeVisible();
+
     await page.getByRole('tab', { name: 'Overview' }).click();
     await expect(page.locator('[data-test="broker-service-overview-tab"]')).toBeVisible();
   });

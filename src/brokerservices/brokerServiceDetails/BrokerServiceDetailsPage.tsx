@@ -17,6 +17,7 @@ import { ResourceDetailsBreadcrumb } from '../../shared-components/resourceDetai
 import { ResourceDetailsFavoriteButton } from '../../shared-components/resourceDetails/ResourceDetailsFavoriteButton';
 import { ResourceStatusBadge } from '../../shared-components/resourceDetails/ResourceStatusBadge';
 import { BrokerServiceOverviewTab } from './components/overview/BrokerServiceOverviewTab';
+import { BrokerServiceResourcesTab } from './components/resources/BrokerServiceResourcesTab';
 import { BrokerServiceYamlTab } from './components/yaml/BrokerServiceYamlTab';
 
 export interface BrokerServiceDetailsPageProps {
@@ -26,9 +27,7 @@ export interface BrokerServiceDetailsPageProps {
   model: K8sModel;
 }
 
-/**
- * Custom details page for BrokerService (Overview and YAML tabs).
- */
+/** Custom details page for BrokerService (Overview, YAML, and Resources tabs). */
 const BrokerServiceDetailsPage: FC<BrokerServiceDetailsPageProps> = ({ namespace }) => {
   const { t } = useTranslation('plugin__arkmq-org-broker-operator-openshift-ui');
   const { name } = useParams<{ name?: string }>();
@@ -61,6 +60,11 @@ const BrokerServiceDetailsPage: FC<BrokerServiceDetailsPageProps> = ({ namespace
       href: 'yaml',
       name: t('YAML'),
       component: BrokerServiceYamlTab,
+    },
+    {
+      href: 'resources',
+      name: t('Resources'),
+      component: BrokerServiceResourcesTab,
     },
   ];
 

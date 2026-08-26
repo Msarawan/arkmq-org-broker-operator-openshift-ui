@@ -80,6 +80,7 @@ describe('BrokerServiceDetailsPage', () => {
     expect(screen.getByTestId('broker-service-details-breadcrumb')).toBeInTheDocument();
     expect(screen.getByTestId('nav-tab-Overview')).toBeInTheDocument();
     expect(screen.getByTestId('nav-tab-YAML')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-tab-Resources')).toBeInTheDocument();
     expect(screen.getByTestId('broker-service-overview-tab')).toBeInTheDocument();
     expect(screen.getByTestId('resource-details-favorite-button')).toBeInTheDocument();
     expect(
