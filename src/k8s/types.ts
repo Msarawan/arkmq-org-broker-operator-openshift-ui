@@ -53,6 +53,11 @@ export interface K8sResourceCondition {
 }
 
 export interface BrokerServiceSpec {
+  /**
+   * Optional container image override for the broker pods.
+   * When absent the operator uses its built-in default image.
+   */
+  image?: string;
   resources?: {
     limits?: {
       memory?: string;

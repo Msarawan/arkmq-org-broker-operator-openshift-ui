@@ -22,6 +22,11 @@ export type BrokerServiceFormAction =
   | { type: 'UPDATE_LABEL_VALUE'; payload: { index: number; value: string } }
   | { type: 'SET_MEMORY_VALUE'; payload: string }
   | { type: 'SET_MEMORY_UNIT'; payload: 'Mi' | 'Gi' }
+  /**
+   * Overrides the broker container image.
+   * An empty or whitespace-only payload removes spec.image so the operator uses its default.
+   */
+  | { type: 'SET_IMAGE'; payload: string }
   | { type: 'SET_MODEL'; payload: BrokerService; preserveLabels?: boolean };
 
 // First occurrence wins so duplicate form rows do not overwrite YAML preview values.
@@ -158,6 +163,17 @@ export const brokerServiceReducer = (
           },
         },
       };
+    }
+
+    case 'SET_IMAGE': {
+      const trimmed = action.payload.trim();
+      const spec = { ...state.cr.spec };
+      if (trimmed) {
+        spec.image = trimmed;
+      } else {
+        delete spec.image;
+      }
+      return { ...state, cr: { ...state.cr, spec } };
     }
 
     case 'SET_MODEL': {
