@@ -15,6 +15,7 @@ import {
   useBrokerServiceFormDispatch,
 } from '../reducers/brokerservice/reducer';
 import { ResourceFormEditor } from '../shared-components/ResourceFormEditor';
+import { AccessControlSection } from './createBrokerService/components/AccessControlSection';
 import { GeneralDetailsSection } from './createBrokerService/components/GeneralDetailsSection';
 import { InfrastructureSection } from './createBrokerService/components/InfrastructureSection';
 import { RuntimeConfigurationSection } from './createBrokerService/components/RuntimeConfigurationSection';
@@ -157,6 +158,7 @@ export const BrokerServiceFormPage: React.FC<BrokerServiceFormPageProps> = ({
           <GeneralDetailsSection namespace={namespace} isNameReadOnly={isEditMode} />
           <InfrastructureSection />
           <RuntimeConfigurationSection />
+          <AccessControlSection />
         </ResourceFormEditor>
       </PageSection>
     </>
