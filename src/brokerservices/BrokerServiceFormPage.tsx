@@ -5,6 +5,7 @@ import { Alert, Content, PageSection, Stack, StackItem, Title } from '@patternfl
 import type { BrokerService } from '../k8s/types';
 import {
   validateBrokerServiceCR,
+  validateEnvVarEntries,
   validateLabelEntries,
   validateYamlDuplicateBrokerServiceLabels,
 } from '../validation/k8s';
@@ -15,6 +16,7 @@ import {
 import { ResourceFormEditor } from '../shared-components/ResourceFormEditor';
 import { GeneralDetailsSection } from './createBrokerService/components/GeneralDetailsSection';
 import { InfrastructureSection } from './createBrokerService/components/InfrastructureSection';
+import { RuntimeConfigurationSection } from './createBrokerService/components/RuntimeConfigurationSection';
 
 interface BrokerServiceFormPageProps {
   title: string;
@@ -54,8 +56,11 @@ export const BrokerServiceFormPage: React.FC<BrokerServiceFormPageProps> = ({
   const formState = useBrokerServiceFormState();
   const dispatch = useBrokerServiceFormDispatch();
 
-  const { cr, labels, hasChanges } = formState;
-  const isFormValid = validateBrokerServiceCR(cr) === null && validateLabelEntries(labels) === null;
+  const { cr, labels, envVars, hasChanges } = formState;
+  const isFormValid =
+    validateBrokerServiceCR(cr) === null &&
+    validateLabelEntries(labels) === null &&
+    validateEnvVarEntries(envVars) === null;
 
   return (
     <>
@@ -138,6 +143,7 @@ export const BrokerServiceFormPage: React.FC<BrokerServiceFormPageProps> = ({
         >
           <GeneralDetailsSection namespace={namespace} isNameReadOnly={isEditMode} />
           <InfrastructureSection />
+          <RuntimeConfigurationSection />
         </ResourceFormEditor>
       </PageSection>
     </>

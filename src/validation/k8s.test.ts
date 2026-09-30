@@ -3,6 +3,7 @@ import type { BrokerAppCR, BrokerService } from '../k8s/types';
 import {
   validateDNS1123,
   validateDuplicateAddressEntries,
+  validateEnvVarEntries,
   validateLabelEntries,
   validateMemoryValue,
   validateCpuQuantity,
@@ -118,6 +119,35 @@ describe('validateLabelEntries', () => {
         { key: 'key1', value: 'two' },
       ]),
     ).toBe('Duplicate label key "key1"');
+  });
+});
+
+describe('validateEnvVarEntries', () => {
+  it('returns null when all names are unique', () => {
+    expect(
+      validateEnvVarEntries([
+        { name: 'BROKER_MAX_CONNECTIONS', value: '1000' },
+        { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('returns null when entries have empty names', () => {
+    expect(
+      validateEnvVarEntries([
+        { name: '', value: 'ignored' },
+        { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('returns error when duplicate non-empty names exist', () => {
+    expect(
+      validateEnvVarEntries([
+        { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+        { name: 'BROKER_LOG_LEVEL', value: 'info' },
+      ]),
+    ).toBe('Duplicate environment variable name "BROKER_LOG_LEVEL"');
   });
 });
 
@@ -716,5 +746,31 @@ describe('validateBrokerServiceCR', () => {
     const error = validateBrokerServiceCR(cr, yaml);
     expect(error).toContain('Line 4: metadata.name:');
     expect(error).toContain('Line 9: spec.resources.limits.memory:');
+  });
+
+  it('returns null when spec.env has unique names', () => {
+    const cr: BrokerService = {
+      ...validBrokerServiceCR,
+      spec: {
+        resources: { limits: { memory: '2Gi' } },
+        env: [{ name: 'BROKER_MAX_CONNECTIONS', value: '1000' }],
+      },
+    };
+    expect(validateBrokerServiceCR(cr, dumpYaml(cr))).toBeNull();
+  });
+
+  it('rejects spec.env entries with duplicate names', () => {
+    const cr: BrokerService = {
+      ...validBrokerServiceCR,
+      spec: {
+        resources: { limits: { memory: '2Gi' } },
+        env: [
+          { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+          { name: 'BROKER_LOG_LEVEL', value: 'info' },
+        ],
+      },
+    };
+    const error = validateBrokerServiceCR(cr, dumpYaml(cr));
+    expect(error).toContain('spec.env: Duplicate environment variable name "BROKER_LOG_LEVEL"');
   });
 });

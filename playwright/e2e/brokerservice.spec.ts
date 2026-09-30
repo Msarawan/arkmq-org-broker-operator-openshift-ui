@@ -27,9 +27,17 @@ async function gotoBrokerServiceList(page: Page, namespace: string) {
   });
 }
 
-function brokerServiceYaml(name: string, namespace: string, labels?: Record<string, string>) {
+function brokerServiceYaml(
+  name: string,
+  namespace: string,
+  labels?: Record<string, string>,
+  env?: { name: string; value: string }[],
+) {
   const labelLines = labels
     ? Object.entries(labels).map(([key, value]) => `    ${key}: ${value}`)
+    : [];
+  const envLines = env
+    ? env.flatMap(({ name: envName, value }) => [`  - name: ${envName}`, `    value: "${value}"`])
     : [];
   return [
     `apiVersion: ${BROKERSERVICE_API}`,
@@ -42,6 +50,7 @@ function brokerServiceYaml(name: string, namespace: string, labels?: Record<stri
     '  resources:',
     '    limits:',
     '      memory: 2Gi',
+    ...(envLines.length > 0 ? ['  env:', ...envLines] : []),
   ].join('\n');
 }
 
@@ -196,6 +205,50 @@ test.describe('BrokerService Creation Form', () => {
     expect(spec.resources?.limits?.memory).toBe('512Mi');
 
     console.log(`\n✓ BrokerService ${yamlServiceName} created via YAML with memory=512Mi`);
+  });
+
+  // ── Test 3: Create service with environment variables → verify spec.env on cluster ──
+
+  test('create service with environment variables and verify spec.env on cluster', async ({
+    page,
+  }) => {
+    await login(page, username, password);
+
+    await page.goto(`/k8s/ns/${TEST_NAMESPACE}/brokerservices/~new`, {
+      waitUntil: 'load',
+    });
+    await page.waitForLoadState('domcontentloaded');
+
+    await expect(page.locator('h1', { hasText: 'Create BrokerService' })).toBeVisible({
+      timeout: 30000,
+    });
+
+    await page.locator('[data-test="broker-service-name-input"]').fill(SERVICE_NAME);
+
+    console.log('  Adding two environment variables via Runtime Configuration...');
+    await page.locator('[data-test="add-env-var-button"]').click();
+    await page.locator('[data-test="env-var-name-input-0"]').fill('BROKER_MAX_CONNECTIONS');
+    await page.locator('[data-test="env-var-value-input-0"]').fill('1000');
+
+    await page.locator('[data-test="add-env-var-button"]').click();
+    await page.locator('[data-test="env-var-name-input-1"]').fill('BROKER_LOG_LEVEL');
+    await page.locator('[data-test="env-var-value-input-1"]').fill('debug');
+
+    await page.locator('[data-test="create-broker-service-button"]').click();
+    await page.waitForURL(/(?!.*~new)/, { timeout: 30000 });
+
+    console.log('  Waiting for BrokerService to be valid...');
+    await waitForCondition('brokerservice', SERVICE_NAME, TEST_NAMESPACE, 'Valid', 'True', 120000);
+
+    console.log('  Verifying spec.env matches form input...');
+    const resource = getResource('brokerservice', SERVICE_NAME, TEST_NAMESPACE);
+    const spec = resource.spec as { env?: { name: string; value: string }[] };
+    expect(spec.env).toEqual([
+      { name: 'BROKER_MAX_CONNECTIONS', value: '1000' },
+      { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+    ]);
+
+    console.log(`\n✓ BrokerService ${SERVICE_NAME} created with 2 environment variables`);
   });
 });
 
@@ -533,5 +586,97 @@ test.describe('BrokerService Edit Page', () => {
     const resource = getResource('brokerservice', EDIT_SERVICE_NAME, EDIT_NAMESPACE);
     const spec = resource.spec as { resources?: { limits?: { memory?: string } } };
     expect(spec.resources?.limits?.memory).toBe('2Gi');
+  });
+
+  test('loads existing environment variables from the cluster into the form', async ({ page }) => {
+    applyYaml(
+      brokerServiceYaml(EDIT_SERVICE_NAME, EDIT_NAMESPACE, undefined, [
+        { name: 'BROKER_MAX_CONNECTIONS', value: '500' },
+      ]),
+    );
+    await waitForCondition(
+      'brokerservice',
+      EDIT_SERVICE_NAME,
+      EDIT_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+    await page.goto(editPath, { waitUntil: 'load' });
+    await expect(page.locator('[data-test="edit-brokerservice-title"]')).toBeVisible({
+      timeout: 30000,
+    });
+
+    await expect(page.locator('[data-test="env-var-name-input-0"]')).toHaveValue(
+      'BROKER_MAX_CONNECTIONS',
+    );
+    await expect(page.locator('[data-test="env-var-value-input-0"]')).toHaveValue('500');
+  });
+
+  test('adds an environment variable and saves it to the cluster', async ({ page }) => {
+    applyYaml(brokerServiceYaml(EDIT_SERVICE_NAME, EDIT_NAMESPACE));
+    await waitForCondition(
+      'brokerservice',
+      EDIT_SERVICE_NAME,
+      EDIT_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+    await page.goto(editPath, { waitUntil: 'load' });
+    await expect(page.locator('[data-test="edit-brokerservice-title"]')).toBeVisible({
+      timeout: 30000,
+    });
+
+    await page.locator('[data-test="add-env-var-button"]').click();
+    await page.locator('[data-test="env-var-name-input-0"]').fill('BROKER_MAX_CONNECTIONS');
+    await page.locator('[data-test="env-var-value-input-0"]').fill('1000');
+
+    await page.locator('[data-test="save-broker-service-button"]').click();
+    await page.waitForURL(new RegExp(`${EDIT_SERVICE_NAME}(?!.*/edit)`), { timeout: 30000 });
+
+    const resource = getResource('brokerservice', EDIT_SERVICE_NAME, EDIT_NAMESPACE);
+    const spec = resource.spec as { env?: { name: string; value: string }[] };
+    expect(spec.env).toEqual([{ name: 'BROKER_MAX_CONNECTIONS', value: '1000' }]);
+  });
+
+  test('removes an environment variable and saves the change to the cluster', async ({ page }) => {
+    applyYaml(
+      brokerServiceYaml(EDIT_SERVICE_NAME, EDIT_NAMESPACE, undefined, [
+        { name: 'BROKER_MAX_CONNECTIONS', value: '500' },
+      ]),
+    );
+    await waitForCondition(
+      'brokerservice',
+      EDIT_SERVICE_NAME,
+      EDIT_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+    await page.goto(editPath, { waitUntil: 'load' });
+    await expect(page.locator('[data-test="edit-brokerservice-title"]')).toBeVisible({
+      timeout: 30000,
+    });
+
+    await expect(page.locator('[data-test="env-var-name-input-0"]')).toHaveValue(
+      'BROKER_MAX_CONNECTIONS',
+    );
+
+    await page.locator('[data-test="remove-env-var-0"]').click();
+    await expect(page.locator('[data-test="env-var-name-input-0"]')).not.toBeVisible();
+
+    await page.locator('[data-test="save-broker-service-button"]').click();
+    await page.waitForURL(new RegExp(`${EDIT_SERVICE_NAME}(?!.*/edit)`), { timeout: 30000 });
+
+    const resource = getResource('brokerservice', EDIT_SERVICE_NAME, EDIT_NAMESPACE);
+    const spec = resource.spec as { env?: { name: string; value: string }[] };
+    expect(spec.env).toBeUndefined();
   });
 });

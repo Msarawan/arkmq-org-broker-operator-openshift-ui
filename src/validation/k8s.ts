@@ -29,6 +29,23 @@ export const validateLabelEntries = (entries: { key: string; value: string }[]):
   return null;
 };
 
+// Rejects duplicate non-empty env var names in form env var rows.
+export const validateEnvVarEntries = (
+  entries: { name: string; value: string }[],
+): string | null => {
+  const seen = new Set<string>();
+  for (const { name } of entries) {
+    if (!name) {
+      continue;
+    }
+    if (seen.has(name)) {
+      return `Duplicate environment variable name "${name}"`;
+    }
+    seen.add(name);
+  }
+  return null;
+};
+
 // Strips surrounding quotes from a YAML mapping key.
 const unquoteYamlKey = (key: string): string => {
   if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
@@ -367,6 +384,10 @@ export const validateBrokerServiceCR = (cr: BrokerService, yaml?: string): strin
       if (numError) errors.push(fmt('spec.resources.limits.memory', numError));
     }
   }
+
+  const envVars = cr.spec?.env ?? [];
+  const envDupError = validateEnvVarEntries(envVars);
+  if (envDupError) errors.push(fmt('spec.env', envDupError));
 
   return errors.length ? errors.join('\n') : null;
 };
