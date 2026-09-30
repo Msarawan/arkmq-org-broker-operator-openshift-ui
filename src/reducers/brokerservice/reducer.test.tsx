@@ -25,6 +25,7 @@ describe('brokerServiceReducer', () => {
     expect(state.labels).toEqual([]);
     expect(state.memoryValue).toBe('2');
     expect(state.memoryUnit).toBe('Gi');
+    expect(state.envVars).toEqual([]);
   });
 
   it('SET_NAME updates the CR metadata name', () => {
@@ -333,6 +334,113 @@ describe('brokerServiceReducer', () => {
     expect(clusterCr.spec?.resources?.limits?.memory).toBe('2Gi');
   });
 
+  it('ADD_ENV_VAR does not add empty-name entries to CR spec.env', () => {
+    let state = createState();
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+
+    expect(state.envVars).toHaveLength(1);
+    expect(state.cr.spec?.env).toBeUndefined();
+  });
+
+  it('UPDATE_ENV_VAR_NAME and UPDATE_ENV_VAR_VALUE sync env vars onto the CR', () => {
+    let state = createState();
+
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_NAME',
+      payload: { index: 0, name: 'BROKER_MAX_CONNECTIONS' },
+    });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_VALUE',
+      payload: { index: 0, value: '1000' },
+    });
+
+    expect(state.envVars[0]).toMatchObject({ name: 'BROKER_MAX_CONNECTIONS', value: '1000' });
+    expect(state.cr.spec?.env).toEqual([{ name: 'BROKER_MAX_CONNECTIONS', value: '1000' }]);
+  });
+
+  it('REMOVE_ENV_VAR removes the entry from state and CR spec.env', () => {
+    let state = createState();
+
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_NAME',
+      payload: { index: 0, name: 'first' },
+    });
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_NAME',
+      payload: { index: 1, name: 'second' },
+    });
+
+    expect(state.cr.spec?.env).toEqual([
+      { name: 'first', value: '' },
+      { name: 'second', value: '' },
+    ]);
+
+    state = brokerServiceReducer(state, { type: 'REMOVE_ENV_VAR', payload: 0 });
+
+    expect(state.envVars).toHaveLength(1);
+    expect(state.envVars[0]).toMatchObject({ name: 'second', value: '' });
+    expect(state.cr.spec?.env).toEqual([{ name: 'second', value: '' }]);
+  });
+
+  it('REMOVE_ENV_VAR at index 0 preserves the second entry id', () => {
+    // Checks that a row keeps its own id even after an earlier row is removed and its
+    // index changes.
+    let state = createState();
+
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_NAME',
+      payload: { index: 0, name: 'first' },
+    });
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_NAME',
+      payload: { index: 1, name: 'second' },
+    });
+    const secondId = state.envVars[1].id;
+
+    state = brokerServiceReducer(state, { type: 'REMOVE_ENV_VAR', payload: 0 });
+
+    expect(state.envVars).toHaveLength(1);
+    expect(state.envVars[0]).toMatchObject({ id: secondId, name: 'second', value: '' });
+  });
+
+  it('drops env var rows with a blank name from CR spec.env while keeping them in form state', () => {
+    let state = createState();
+
+    state = brokerServiceReducer(state, { type: 'ADD_ENV_VAR' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_ENV_VAR_VALUE',
+      payload: { index: 0, value: 'orphaned-value' },
+    });
+
+    expect(state.envVars).toHaveLength(1);
+    expect(state.envVars[0]).toMatchObject({ name: '', value: 'orphaned-value' });
+    expect(state.cr.spec?.env).toBeUndefined();
+  });
+
+  it('SET_MODEL populates envVars from an existing CR spec.env', () => {
+    const state = createState();
+    const newCr: BrokerService = {
+      apiVersion: 'broker.arkmq.org/v1beta2',
+      kind: 'BrokerService',
+      metadata: { name: 'updated-broker', namespace: TEST_NAMESPACE },
+      spec: {
+        resources: { limits: { memory: '2Gi' } },
+        env: [{ name: 'BROKER_MAX_CONNECTIONS', value: '1000' }],
+      },
+    };
+
+    const next = brokerServiceReducer(state, { type: 'SET_MODEL', payload: newCr });
+
+    expect(next.envVars).toHaveLength(1);
+    expect(next.envVars[0]).toMatchObject({ name: 'BROKER_MAX_CONNECTIONS', value: '1000' });
+    expect(next.cr.spec?.env).toEqual([{ name: 'BROKER_MAX_CONNECTIONS', value: '1000' }]);
+  });
+
   it('SET_MODEL with empty spec clears labels and resets memory defaults', () => {
     const state = brokerServiceReducer(createState(), {
       type: 'SET_MODEL',
@@ -379,6 +487,43 @@ describe('SET_MODEL validation', () => {
         kind: 'BrokerService',
         metadata: { name: 'valid', namespace: 'test-ns' },
         spec: { resources: { limits: { memory: '2Ti' } } },
+      },
+      yaml,
+    });
+    expect(result).toBe(initial);
+  });
+
+  it('returns current state when yaml is provided and spec.env has duplicate names', () => {
+    const yaml = [
+      'apiVersion: broker.arkmq.org/v1beta2',
+      'kind: BrokerService',
+      'metadata:',
+      '  name: valid',
+      '  namespace: test-ns',
+      'spec:',
+      '  resources:',
+      '    limits:',
+      '      memory: 2Gi',
+      '  env:',
+      '    - name: BROKER_LOG_LEVEL',
+      '      value: debug',
+      '    - name: BROKER_LOG_LEVEL',
+      '      value: info',
+    ].join('\n');
+    const initial = createState();
+    const result = brokerServiceReducer(initial, {
+      type: 'SET_MODEL',
+      payload: {
+        apiVersion: 'broker.arkmq.org/v1beta2',
+        kind: 'BrokerService',
+        metadata: { name: 'valid', namespace: 'test-ns' },
+        spec: {
+          resources: { limits: { memory: '2Gi' } },
+          env: [
+            { name: 'BROKER_LOG_LEVEL', value: 'debug' },
+            { name: 'BROKER_LOG_LEVEL', value: 'info' },
+          ],
+        },
       },
       yaml,
     });

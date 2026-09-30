@@ -8,11 +8,22 @@ export interface LabelEntry {
   value: string;
 }
 
+/**
+ * One row of the Runtime Configuration environment variable editor, backing a single spec.env[] entry.
+ * `id` only exists for the UI's list key and is never saved to the CR.
+ */
+export interface EnvVarEntry {
+  id: string;
+  name: string;
+  value: string;
+}
+
 export interface BrokerServiceFormState {
   cr: BrokerService;
   labels: LabelEntry[];
   memoryValue: string;
   memoryUnit: 'Mi' | 'Gi';
+  envVars: EnvVarEntry[];
   hasChanges: boolean;
 }
 
@@ -29,6 +40,10 @@ export type BrokerServiceFormAction =
    * An empty or whitespace-only payload removes spec.image so the operator uses its default.
    */
   | { type: 'SET_IMAGE'; payload: string }
+  | { type: 'ADD_ENV_VAR' }
+  | { type: 'REMOVE_ENV_VAR'; payload: number }
+  | { type: 'UPDATE_ENV_VAR_NAME'; payload: { index: number; name: string } }
+  | { type: 'UPDATE_ENV_VAR_VALUE'; payload: { index: number; value: string } }
   | {
       type: 'SET_MODEL';
       payload: BrokerService;
@@ -71,6 +86,20 @@ const mergeFormLabelsWithYaml = (
   return merged;
 };
 
+/**
+ * Reconstructs env var form rows from the CR's spec.env array.
+ * Used when loading a CR from YAML, the cluster, or a Reload action.
+ * Synthesizes a fresh `id` per row since the CR itself has no row identity concept.
+ */
+const envVarsFromArray = (env: { name: string; value: string }[] | undefined): EnvVarEntry[] =>
+  env
+    ? env.map(({ name, value }, i) => ({
+        id: `imported-${String(i)}-${String(Date.now())}`,
+        name,
+        value,
+      }))
+    : [];
+
 const parseMemory = (memoryStr: string | undefined): { value: string; unit: 'Mi' | 'Gi' } => {
   const match = FORM_MEMORY_REGEX.exec(memoryStr ?? '');
   return {
@@ -104,12 +133,30 @@ const syncMemoryToSpec = (
   };
 };
 
+/**
+ * Syncs env var rows into the CR's spec.env field.
+ * Rows without a name are dropped — they cannot become a valid corev1.EnvVar entry,
+ * and silently omitting them (rather than blocking submission) matches how blank
+ * label rows are already handled elsewhere on this form.
+ */
+const syncEnvVarsToSpec = (cr: BrokerService, envVars: EnvVarEntry[]): void => {
+  const validEntries = envVars
+    .filter(({ name }) => name.trim())
+    .map(({ name, value }) => ({ name: name.trim(), value }));
+  cr.spec = { ...cr.spec };
+  if (validEntries.length) {
+    cr.spec.env = validEntries;
+  } else {
+    delete cr.spec.env;
+  }
+};
+
 export const brokerServiceReducer = (
   state: BrokerServiceFormState,
   action: BrokerServiceFormAction,
 ): BrokerServiceFormState => {
   let cr = { ...state.cr, spec: { ...state.cr.spec } };
-  let { labels, memoryValue, memoryUnit } = state;
+  let { labels, memoryValue, memoryUnit, envVars } = state;
 
   switch (action.type) {
     case 'SET_NAME':
@@ -154,6 +201,27 @@ export const brokerServiceReducer = (
       }
       break;
     }
+
+    case 'ADD_ENV_VAR':
+      envVars = [...envVars, { id: String(Date.now()), name: '', value: '' }];
+      break;
+
+    case 'REMOVE_ENV_VAR':
+      envVars = envVars.filter((_, i) => i !== action.payload);
+      break;
+
+    case 'UPDATE_ENV_VAR_NAME':
+      envVars = envVars.map((e, i) =>
+        i === action.payload.index ? { ...e, name: action.payload.name } : e,
+      );
+      break;
+
+    case 'UPDATE_ENV_VAR_VALUE':
+      envVars = envVars.map((e, i) =>
+        i === action.payload.index ? { ...e, value: action.payload.value } : e,
+      );
+      break;
+
     case 'SET_MODEL':
       if (action.yaml) {
         const error = validateBrokerServiceCR(action.payload, action.yaml);
@@ -164,9 +232,19 @@ export const brokerServiceReducer = (
         ? mergeFormLabelsWithYaml(state.labels, cr.metadata?.labels)
         : labelsFromRecord(cr.metadata?.labels);
       ({ value: memoryValue, unit: memoryUnit } = parseMemory(cr.spec.resources?.limits?.memory));
+      envVars = envVarsFromArray(cr.spec.env);
       syncLabelsToMetadata(cr, labels);
       syncMemoryToSpec(cr, memoryValue, memoryUnit);
-      return { ...state, cr, labels, memoryValue, memoryUnit, hasChanges: !action.resetChanges };
+      syncEnvVarsToSpec(cr, envVars);
+      return {
+        ...state,
+        cr,
+        labels,
+        memoryValue,
+        memoryUnit,
+        envVars,
+        hasChanges: !action.resetChanges,
+      };
 
     default:
       return state;
@@ -174,7 +252,8 @@ export const brokerServiceReducer = (
 
   syncLabelsToMetadata(cr, labels);
   syncMemoryToSpec(cr, memoryValue, memoryUnit);
-  return { ...state, cr, labels, memoryValue, memoryUnit, hasChanges: true };
+  syncEnvVarsToSpec(cr, envVars);
+  return { ...state, cr, labels, memoryValue, memoryUnit, envVars, hasChanges: true };
 };
 
 const formStateFromCr = (cr: BrokerService): BrokerServiceFormState => {
@@ -185,6 +264,7 @@ const formStateFromCr = (cr: BrokerService): BrokerServiceFormState => {
     labels: labelsFromRecord(clonedCr.metadata?.labels),
     memoryValue: mem.value,
     memoryUnit: mem.unit,
+    envVars: envVarsFromArray(clonedCr.spec?.env),
     hasChanges: false,
   };
 };
