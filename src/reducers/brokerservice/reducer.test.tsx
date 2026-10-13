@@ -44,6 +44,50 @@ describe('brokerServiceReducer', () => {
     expect(state.cr.metadata?.labels).toBeUndefined();
   });
 
+  it('COPY_LABELS_FROM_SERVICE replaces form labels and syncs metadata.labels', () => {
+    let state = createState();
+    state = brokerServiceReducer(state, { type: 'ADD_LABEL' });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_LABEL_KEY',
+      payload: { index: 0, key: 'old' },
+    });
+    state = brokerServiceReducer(state, {
+      type: 'UPDATE_LABEL_VALUE',
+      payload: { index: 0, value: 'value' },
+    });
+
+    state = brokerServiceReducer(state, {
+      type: 'COPY_LABELS_FROM_SERVICE',
+      payload: { tier: 'production', forWorkQueue: 'true' },
+    });
+
+    expect(state.labels).toEqual([
+      { key: 'tier', value: 'production' },
+      { key: 'forWorkQueue', value: 'true' },
+    ]);
+    expect(state.cr.metadata?.labels).toEqual({
+      tier: 'production',
+      forWorkQueue: 'true',
+    });
+    expect(state.hasChanges).toBe(true);
+  });
+
+  it('COPY_LABELS_FROM_SERVICE with undefined payload clears labels', () => {
+    let state = createState();
+    state = brokerServiceReducer(state, {
+      type: 'COPY_LABELS_FROM_SERVICE',
+      payload: { tier: 'production' },
+    });
+
+    state = brokerServiceReducer(state, {
+      type: 'COPY_LABELS_FROM_SERVICE',
+      payload: undefined,
+    });
+
+    expect(state.labels).toEqual([]);
+    expect(state.cr.metadata?.labels).toBeUndefined();
+  });
+
   it('UPDATE_LABEL_KEY, UPDATE_LABEL_VALUE, and REMOVE_LABEL sync labels on the CR', () => {
     let state = createState();
 

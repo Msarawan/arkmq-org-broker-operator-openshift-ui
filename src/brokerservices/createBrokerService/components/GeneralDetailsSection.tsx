@@ -1,7 +1,9 @@
 import type { FC } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
+  Flex,
+  FlexItem,
   FormGroup,
   FormHelperText,
   FormSection,
@@ -20,6 +22,7 @@ import {
   useBrokerServiceFormDispatch,
 } from '../../../reducers/brokerservice/reducer';
 import { validateDNS1123, validateLabelEntries } from '../../../validation/k8s';
+import { CopyLabelsFromServiceModal } from './CopyLabelsFromServiceModal';
 
 export interface GeneralDetailsSectionProps {
   namespace: string;
@@ -27,6 +30,10 @@ export interface GeneralDetailsSectionProps {
   isNameReadOnly?: boolean;
 }
 
+/**
+ * Name, namespace, and labels fields for the BrokerService create/edit form.
+ * Also offers copying labels from an existing BrokerService.
+ */
 export const GeneralDetailsSection: FC<GeneralDetailsSectionProps> = ({
   namespace,
   isNameReadOnly = false,
@@ -34,6 +41,7 @@ export const GeneralDetailsSection: FC<GeneralDetailsSectionProps> = ({
   const { t } = useTranslation('plugin__arkmq-org-broker-operator-openshift-ui');
   const { cr, labels } = useBrokerServiceFormState();
   const dispatch = useBrokerServiceFormDispatch();
+  const [isCopyLabelsModalOpen, setIsCopyLabelsModalOpen] = useState(false);
 
   const name = cr.metadata?.name ?? '';
   const nameError = validateDNS1123(name) ?? undefined;
@@ -114,6 +122,33 @@ export const GeneralDetailsSection: FC<GeneralDetailsSectionProps> = ({
             </FormHelperText>
           </StackItem>
 
+          <StackItem>
+            <Flex
+              spaceItems={{ default: 'spaceItemsSm' }}
+              alignItems={{ default: 'alignItemsBaseline' }}
+            >
+              <FlexItem>
+                <Button
+                  variant="link"
+                  isInline
+                  onClick={() => {
+                    setIsCopyLabelsModalOpen(true);
+                  }}
+                  data-test="copy-labels-from-service-link"
+                >
+                  {t('Copy labels from existing service')}
+                </Button>
+              </FlexItem>
+              <FlexItem>
+                <HelperText>
+                  <HelperTextItem>
+                    {t('So apps targeting it will also discover this one')}
+                  </HelperTextItem>
+                </HelperText>
+              </FlexItem>
+            </Flex>
+          </StackItem>
+
           {labels.map((label, index) => {
             const hasDuplicateKey = Boolean(label.key && duplicateLabelKeys.has(label.key));
 
@@ -185,6 +220,16 @@ export const GeneralDetailsSection: FC<GeneralDetailsSectionProps> = ({
           </StackItem>
         </Stack>
       </FormGroup>
+
+      {isCopyLabelsModalOpen && (
+        <CopyLabelsFromServiceModal
+          namespace={namespace}
+          excludeServiceName={isNameReadOnly ? name : undefined}
+          onClose={() => {
+            setIsCopyLabelsModalOpen(false);
+          }}
+        />
+      )}
     </FormSection>
   );
 };
