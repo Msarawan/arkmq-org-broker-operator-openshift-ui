@@ -1,6 +1,7 @@
 import { type FC, useReducer } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useK8sWatchResource } from '@openshift-console/dynamic-plugin-sdk';
 import {
   brokerServiceReducer,
   BrokerServiceFormDispatchContext,
@@ -9,6 +10,8 @@ import {
   type BrokerServiceFormState,
 } from '../../../reducers/brokerservice/reducer';
 import { GeneralDetailsSection } from './GeneralDetailsSection';
+
+const mockUseK8sWatchResource = useK8sWatchResource as jest.Mock;
 
 const TEST_NAMESPACE = 'test-namespace';
 
@@ -49,6 +52,11 @@ const makeStateWithLabels = (): BrokerServiceFormState =>
       spec: { resources: { limits: { memory: '2Gi' } } },
     },
   });
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUseK8sWatchResource.mockReturnValue([[], true, undefined]);
+});
 
 describe('GeneralDetailsSection', () => {
   it('renders the general details section with name and namespace fields', () => {
@@ -107,6 +115,92 @@ describe('GeneralDetailsSection', () => {
     expect(
       screen.queryByText('Unique name for the BrokerService resource.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('renders the copy labels link in the Labels section', () => {
+    render(<GeneralDetailsSectionWrapper namespace={TEST_NAMESPACE} />);
+
+    expect(screen.getByTestId('copy-labels-from-service-link')).toBeInTheDocument();
+    expect(screen.getByText('Copy labels from existing service')).toBeInTheDocument();
+    expect(
+      screen.getByText('So apps targeting it will also discover this one'),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the copy labels modal when the link is clicked', async () => {
+    const user = userEvent.setup();
+    render(<GeneralDetailsSectionWrapper namespace={TEST_NAMESPACE} />);
+
+    expect(screen.queryByTestId('copy-labels-from-service-modal')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('copy-labels-from-service-link'));
+
+    expect(screen.getByTestId('copy-labels-from-service-modal')).toBeInTheDocument();
+  });
+
+  it('populates label inputs after selecting a service in the copy modal', async () => {
+    const user = userEvent.setup();
+    mockUseK8sWatchResource.mockReturnValue([
+      [
+        {
+          apiVersion: 'broker.arkmq.org/v1beta2',
+          kind: 'BrokerService',
+          metadata: {
+            name: 'existing-service',
+            namespace: TEST_NAMESPACE,
+            labels: { tier: 'production', forWorkQueue: 'true' },
+          },
+          spec: { resources: { limits: { memory: '2Gi' } } },
+        },
+      ],
+      true,
+      undefined,
+    ]);
+
+    render(<GeneralDetailsSectionWrapper namespace={TEST_NAMESPACE} />);
+
+    await user.click(screen.getByTestId('copy-labels-from-service-link'));
+    await user.click(screen.getByRole('button', { name: 'existing-service' }));
+
+    const keyInputs = screen.getAllByLabelText('Label key');
+    const valueInputs = screen.getAllByLabelText('Label value');
+    expect(keyInputs).toHaveLength(2);
+    expect(keyInputs[0]).toHaveValue('tier');
+    expect(valueInputs[0]).toHaveValue('production');
+    expect(keyInputs[1]).toHaveValue('forWorkQueue');
+    expect(valueInputs[1]).toHaveValue('true');
+    expect(screen.queryByTestId('copy-labels-from-service-modal')).not.toBeInTheDocument();
+  });
+
+  it('allows adding and removing labels after copying from a service', async () => {
+    const user = userEvent.setup();
+    mockUseK8sWatchResource.mockReturnValue([
+      [
+        {
+          apiVersion: 'broker.arkmq.org/v1beta2',
+          kind: 'BrokerService',
+          metadata: {
+            name: 'existing-service',
+            namespace: TEST_NAMESPACE,
+            labels: { tier: 'production' },
+          },
+          spec: { resources: { limits: { memory: '2Gi' } } },
+        },
+      ],
+      true,
+      undefined,
+    ]);
+
+    render(<GeneralDetailsSectionWrapper namespace={TEST_NAMESPACE} />);
+
+    await user.click(screen.getByTestId('copy-labels-from-service-link'));
+    await user.click(screen.getByRole('button', { name: 'existing-service' }));
+
+    await user.click(screen.getByTestId('add-label-button'));
+    expect(screen.getAllByLabelText('Label key')).toHaveLength(2);
+
+    await user.click(screen.getAllByLabelText('Remove label')[0]);
+    expect(screen.getAllByLabelText('Label key')).toHaveLength(1);
   });
 
   it('adds a label row when Add Label is clicked', async () => {

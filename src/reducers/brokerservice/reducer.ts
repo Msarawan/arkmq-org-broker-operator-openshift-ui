@@ -33,6 +33,11 @@ export type BrokerServiceFormAction =
   | { type: 'REMOVE_LABEL'; payload: number }
   | { type: 'UPDATE_LABEL_KEY'; payload: { index: number; key: string } }
   | { type: 'UPDATE_LABEL_VALUE'; payload: { index: number; value: string } }
+  /**
+   * Replaces the form label rows with labels copied from another BrokerService.
+   * An empty/undefined payload clears all labels so the form matches a service that has none.
+   */
+  | { type: 'COPY_LABELS_FROM_SERVICE'; payload: Record<string, string> | undefined }
   | { type: 'SET_MEMORY_VALUE'; payload: string }
   | { type: 'SET_MEMORY_UNIT'; payload: 'Mi' | 'Gi' }
   /**
@@ -186,6 +191,10 @@ export const brokerServiceReducer = (
         ...labels[action.payload.index],
         value: action.payload.value,
       };
+      break;
+
+    case 'COPY_LABELS_FROM_SERVICE':
+      labels = labelsFromRecord(action.payload);
       break;
 
     case 'SET_MEMORY_VALUE':

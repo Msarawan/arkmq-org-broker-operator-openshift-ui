@@ -34,7 +34,7 @@ function brokerServiceYaml(
   env?: { name: string; value: string }[],
 ) {
   const labelLines = labels
-    ? Object.entries(labels).map(([key, value]) => `    ${key}: ${value}`)
+    ? Object.entries(labels).map(([key, value]) => `    ${key}: "${value}"`)
     : [];
   const envLines = env
     ? env.flatMap(({ name: envName, value }) => [`  - name: ${envName}`, `    value: "${value}"`])
@@ -249,6 +249,99 @@ test.describe('BrokerService Creation Form', () => {
     ]);
 
     console.log(`\n✓ BrokerService ${SERVICE_NAME} created with 2 environment variables`);
+  });
+
+  // ── Test 4: Copy labels from an existing service → verify labels on cluster ──
+
+  test('copy labels from existing service and verify labels on cluster', async ({ page }) => {
+    // existing = service we copy labels from; new = service created with those labels
+    const existingServiceName = 'labeled-broker';
+    const newServiceName = 'copied-labels-broker';
+
+    console.log('  Seeding existing BrokerService with known labels...');
+    applyYaml(
+      brokerServiceYaml(existingServiceName, TEST_NAMESPACE, {
+        tier: 'production',
+        forWorkQueue: 'true',
+      }),
+    );
+    await waitForCondition(
+      'brokerservice',
+      existingServiceName,
+      TEST_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, username, password);
+
+    await page.goto(`/k8s/ns/${TEST_NAMESPACE}/brokerservices/~new`, {
+      waitUntil: 'load',
+    });
+    await page.waitForLoadState('domcontentloaded');
+
+    await expect(page.locator('h1', { hasText: 'Create BrokerService' })).toBeVisible({
+      timeout: 30000,
+    });
+
+    await page.locator('[data-test="broker-service-name-input"]').fill(newServiceName);
+
+    console.log('  Opening copy-labels modal and selecting the existing service...');
+    await page.locator('[data-test="copy-labels-from-service-link"]').click();
+    await expect(page.locator('[data-test="copy-labels-from-service-modal"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(
+      page.locator(`[data-test="copy-labels-service-card-${existingServiceName}"]`),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('tier=production')).toBeVisible();
+    await expect(page.getByText('forWorkQueue=true')).toBeVisible();
+
+    await page.getByRole('button', { name: existingServiceName }).click();
+    await expect(page.locator('[data-test="copy-labels-from-service-modal"]')).toHaveCount(0);
+
+    const keyInputs = page.getByLabel('Label key');
+    const valueInputs = page.getByLabel('Label value');
+    await expect(keyInputs).toHaveCount(2);
+    const copiedLabels = Object.fromEntries(
+      await Promise.all(
+        (await keyInputs.all()).map(async (keyInput, index) => {
+          const key = await keyInput.inputValue();
+          const value = await valueInputs.nth(index).inputValue();
+          return [key, value] as const;
+        }),
+      ),
+    );
+    expect(copiedLabels).toEqual({
+      tier: 'production',
+      forWorkQueue: 'true',
+    });
+
+    await page.locator('[data-test="create-broker-service-button"]').click();
+    await page.waitForURL(/(?!.*~new)/, { timeout: 30000 });
+
+    console.log('  Waiting for new BrokerService to be valid...');
+    await waitForCondition(
+      'brokerservice',
+      newServiceName,
+      TEST_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    console.log('  Verifying metadata.labels on the created BrokerService...');
+    const resource = getResource('brokerservice', newServiceName, TEST_NAMESPACE);
+    const metadata = resource.metadata as { labels?: Record<string, string> };
+    expect(metadata.labels).toEqual({
+      tier: 'production',
+      forWorkQueue: 'true',
+    });
+
+    console.log(
+      `\n✓ BrokerService ${newServiceName} created with labels copied from ${existingServiceName}`,
+    );
   });
 });
 
