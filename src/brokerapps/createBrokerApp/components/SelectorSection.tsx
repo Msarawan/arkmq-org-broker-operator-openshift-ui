@@ -1,7 +1,10 @@
 import * as React from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
+  Flex,
+  FlexItem,
   FormGroup,
   FormHelperText,
   FormSection,
@@ -27,6 +30,7 @@ import {
   useBrokerAppFormDispatch,
 } from '../../../reducers/brokerapp/reducer';
 import { validateLabelEntries, validateRequiredMatchLabels } from '../../../validation/k8s';
+import { CopyLabelsFromServiceModal } from './CopyLabelsFromServiceModal';
 
 export interface SelectorSectionProps {
   namespace: string;
@@ -40,12 +44,14 @@ interface OpenField {
 
 /**
  * Service Selector section with typeahead dropdowns for BrokerService labels.
- * Watches BrokerServices in the namespace and provides key/value suggestions.
+ * Watches BrokerServices in the namespace and provides key/value suggestions,
+ * plus optional selective copy of labels from an existing BrokerService.
  */
 export const SelectorSection: React.FC<SelectorSectionProps> = ({ namespace }) => {
   const { t } = useTranslation('plugin__arkmq-org-broker-operator-openshift-ui');
   const state = useBrokerAppFormState();
   const dispatch = useBrokerAppFormDispatch();
+  const [isCopyLabelsModalOpen, setIsCopyLabelsModalOpen] = useState(false);
 
   const [services, servicesLoaded, servicesError] = useK8sWatchResource<BrokerService[]>({
     groupVersionKind: {
@@ -143,16 +149,44 @@ export const SelectorSection: React.FC<SelectorSectionProps> = ({ namespace }) =
   return (
     <FormSection title={t('Service Selector')}>
       <FormGroup fieldId="brokerapp-selector" isRequired>
-        <FormHelperText>
-          <HelperText>
-            <HelperTextItem>
-              {t(
-                'Enter labels to match a BrokerService. Your app will be provisioned to a service with matching labels.',
-              )}
-            </HelperTextItem>
-          </HelperText>
-        </FormHelperText>
         <Stack hasGutter>
+          <StackItem>
+            <FormHelperText>
+              <HelperText>
+                <HelperTextItem>
+                  {t(
+                    'Enter labels to match a BrokerService. Your app will be provisioned to a service with matching labels.',
+                  )}
+                </HelperTextItem>
+              </HelperText>
+            </FormHelperText>
+          </StackItem>
+          <StackItem>
+            <Flex
+              spaceItems={{ default: 'spaceItemsSm' }}
+              alignItems={{ default: 'alignItemsBaseline' }}
+            >
+              <FlexItem>
+                <Button
+                  variant="link"
+                  isInline
+                  onClick={() => {
+                    setIsCopyLabelsModalOpen(true);
+                  }}
+                  data-test="copy-labels-from-service-link"
+                >
+                  {t('Copy labels from existing service')}
+                </Button>
+              </FlexItem>
+              <FlexItem>
+                <HelperText>
+                  <HelperTextItem>
+                    {t('To discover the same BrokerServices without adding each label manually')}
+                  </HelperTextItem>
+                </HelperText>
+              </FlexItem>
+            </Flex>
+          </StackItem>
           {state.matchLabels.map((label) => {
             const isKeyOpen = openField?.labelId === label.id && openField.field === 'key';
             const isValueOpen = openField?.labelId === label.id && openField.field === 'value';
@@ -323,6 +357,15 @@ export const SelectorSection: React.FC<SelectorSectionProps> = ({ namespace }) =
           </StackItem>
         </Stack>
       </FormGroup>
+
+      {isCopyLabelsModalOpen && (
+        <CopyLabelsFromServiceModal
+          namespace={namespace}
+          onClose={() => {
+            setIsCopyLabelsModalOpen(false);
+          }}
+        />
+      )}
     </FormSection>
   );
 };

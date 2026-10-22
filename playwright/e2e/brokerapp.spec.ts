@@ -9,6 +9,7 @@ import {
   deleteNamespace,
   applyYaml,
   secretExists,
+  getResource,
 } from '../fixtures/k8s';
 import { login } from '../fixtures/auth';
 
@@ -160,6 +161,95 @@ spec:
     expect(data).toHaveProperty('host');
     expect(data).toHaveProperty('port');
     console.log('✓ Binding secret has expected keys: uri, host, port');
+  });
+
+  // ── Test: Copy selector labels from an existing BrokerService → verify CR ──
+
+  test('copy labels from existing service into BrokerApp selector', async ({ page }) => {
+    const labeledServiceName = 'labeled-for-app-copy';
+    const appName = 'e2e-app-copied-labels';
+    const expectedLabels = { tier: 'production', forWorkQueue: 'true' };
+
+    console.log('  Seeding BrokerService with known labels for copy...');
+    applyYaml(`
+apiVersion: ${BROKERSERVICE_API}
+kind: BrokerService
+metadata:
+  name: ${labeledServiceName}
+  namespace: ${TEST_NAMESPACE}
+  labels:
+    tier: "${expectedLabels.tier}"
+    forWorkQueue: "${expectedLabels.forWorkQueue}"
+spec:
+  resources:
+    limits:
+      memory: "256Mi"
+`);
+    await waitForCondition(
+      'brokerservice',
+      labeledServiceName,
+      TEST_NAMESPACE,
+      'Valid',
+      'True',
+      120000,
+    );
+
+    await login(page, 'kubeadmin', process.env.KUBEADMIN_PASSWORD || 'kubeadmin');
+    await page.goto(`/k8s/ns/${TEST_NAMESPACE}/brokerapps/~new`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.waitForSelector('[data-test="create-brokerapp-title"]', { timeout: 30000 });
+    await page.locator('[data-test="brokerapp-name"]').fill(appName);
+
+    console.log('  Copying labels from existing BrokerService via modal...');
+    await page.locator('[data-test="copy-labels-from-service-link"]').click();
+    await expect(page.locator('[data-test="copy-labels-from-service-modal"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(
+      page.locator(`[data-test="copy-labels-service-card-${labeledServiceName}"]`),
+    ).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: labeledServiceName }).click();
+    await expect(page.locator('[data-test="copy-labels-checkbox-step"]')).toBeVisible();
+    await page.locator('[data-test="copy-labels-modal-confirm"]').click();
+    await expect(page.locator('[data-test="copy-labels-from-service-modal"]')).toHaveCount(0);
+
+    const keyInputs = page.getByRole('textbox', { name: 'Label key' });
+    const valueInputs = page.getByRole('textbox', { name: 'Label value' });
+    await expect(keyInputs).toHaveCount(2);
+    const copiedLabels = Object.fromEntries(
+      await Promise.all(
+        (await keyInputs.all()).map(async (keyInput, index) => {
+          const key = await keyInput.inputValue();
+          const value = await valueInputs.nth(index).inputValue();
+          return [key, value] as const;
+        }),
+      ),
+    );
+    expect(copiedLabels).toEqual(expectedLabels);
+
+    await page.locator('[data-test="brokerapp-create-btn"]').click();
+    await page.waitForURL('**/broker.arkmq.org~v1beta2~BrokerApp**', { timeout: 30000 });
+
+    console.log('  Verifying spec.selector.matchLabels on the created BrokerApp...');
+    await expect
+      .poll(
+        () => {
+          try {
+            const resource = getResource('brokerapp', appName, TEST_NAMESPACE);
+            const spec = resource.spec as {
+              selector?: { matchLabels?: Record<string, string> };
+            };
+            return spec.selector?.matchLabels;
+          } catch {
+            return undefined;
+          }
+        },
+        { timeout: 30000 },
+      )
+      .toEqual(expectedLabels);
+    console.log(`✓ BrokerApp ${appName} selector matchLabels match the copied service labels`);
   });
 
   // ── Test: Add multiple addresses to "Produces To" → verify they all appear in spec ──
