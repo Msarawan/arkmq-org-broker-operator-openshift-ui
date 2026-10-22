@@ -53,6 +53,11 @@ export type BrokerAppFormAction =
   | { type: 'ADD_MATCH_LABEL' }
   | { type: 'REMOVE_MATCH_LABEL'; payload: string }
   | { type: 'UPDATE_MATCH_LABEL'; payload: { id: string; key: string; value: string } }
+  /**
+   * Merges selected BrokerService labels into the selector matchLabels.
+   * Keys that already exist in the form are skipped so existing choices are preserved.
+   */
+  | { type: 'COPY_MATCH_LABELS_FROM_SERVICE'; payload: Record<string, string> }
   | {
       type: 'SET_MODEL';
       payload: BrokerAppCR;
@@ -320,6 +325,22 @@ export const brokerAppReducer = (
           : l,
       );
       break;
+
+    case 'COPY_MATCH_LABELS_FROM_SERVICE': {
+      const existingKeys = new Set(matchLabels.map((l) => l.key).filter(Boolean));
+      const toAdd = Object.entries(action.payload).filter(
+        ([key]) => Boolean(key) && !existingKeys.has(key),
+      );
+      const nonEmptyRows = matchLabels.filter((l) => l.key || l.value);
+      matchLabels = [
+        ...nonEmptyRows,
+        ...toAdd.map(([key, value]) => ({ id: nextMatchLabelId(), key, value })),
+      ];
+      if (matchLabels.length === 0) {
+        matchLabels = [{ id: nextMatchLabelId(), key: '', value: '' }];
+      }
+      break;
+    }
 
     case 'SET_MODEL': {
       if (action.yaml) {

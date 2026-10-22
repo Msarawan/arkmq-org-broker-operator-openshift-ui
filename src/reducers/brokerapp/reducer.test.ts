@@ -230,6 +230,58 @@ describe('brokerAppReducer', () => {
       expect(state.hasChanges).toBe(true);
     });
 
+    it('COPY_MATCH_LABELS_FROM_SERVICE replaces the empty placeholder with chosen labels', () => {
+      const initial = createInitialBrokerAppState(ns);
+      const state = brokerAppReducer(initial, {
+        type: 'COPY_MATCH_LABELS_FROM_SERVICE',
+        payload: { tier: 'production', forWorkQueue: 'true' },
+      });
+
+      expect(state.matchLabels.map(({ key, value }) => ({ key, value }))).toEqual([
+        { key: 'tier', value: 'production' },
+        { key: 'forWorkQueue', value: 'true' },
+      ]);
+      expect(state.cr.spec.selector?.matchLabels).toEqual({
+        tier: 'production',
+        forWorkQueue: 'true',
+      });
+      expect(state.hasChanges).toBe(true);
+    });
+
+    it('COPY_MATCH_LABELS_FROM_SERVICE skips keys that already exist in the selector', () => {
+      let state = createInitialBrokerAppState(ns);
+      const id = state.matchLabels[0].id;
+      state = brokerAppReducer(state, {
+        type: 'UPDATE_MATCH_LABEL',
+        payload: { id, key: 'tier', value: 'staging' },
+      });
+      state = brokerAppReducer(state, {
+        type: 'COPY_MATCH_LABELS_FROM_SERVICE',
+        payload: { tier: 'production', env: 'prod' },
+      });
+
+      expect(state.matchLabels.map(({ key, value }) => ({ key, value }))).toEqual([
+        { key: 'tier', value: 'staging' },
+        { key: 'env', value: 'prod' },
+      ]);
+      expect(state.cr.spec.selector?.matchLabels).toEqual({
+        tier: 'staging',
+        env: 'prod',
+      });
+    });
+
+    it('COPY_MATCH_LABELS_FROM_SERVICE with an empty payload keeps a blank placeholder row', () => {
+      const initial = createInitialBrokerAppState(ns);
+      const state = brokerAppReducer(initial, {
+        type: 'COPY_MATCH_LABELS_FROM_SERVICE',
+        payload: {},
+      });
+
+      expect(state.matchLabels).toHaveLength(1);
+      expect(state.matchLabels[0]).toMatchObject({ key: '', value: '' });
+      expect(state.cr.spec.selector).toBeUndefined();
+    });
+
     it('SET_MODEL with resetChanges resets hasChanges to false', () => {
       let state = createInitialBrokerAppState(ns);
       state = brokerAppReducer(state, { type: 'SET_NAME', payload: 'edited' });

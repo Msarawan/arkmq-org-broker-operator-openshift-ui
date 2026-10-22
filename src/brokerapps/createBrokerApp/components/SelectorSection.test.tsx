@@ -54,6 +54,20 @@ describe('SelectorSection', () => {
     expect(screen.getByRole('textbox', { name: 'Label value' })).toBeInTheDocument();
   });
 
+  it('renders the copy-labels link and opens the modal', async () => {
+    const user = userEvent.setup();
+    render(<SelectorSectionWrapper />);
+
+    const link = screen.getByTestId('copy-labels-from-service-link');
+    expect(link).toHaveTextContent('Copy labels from existing service');
+
+    await user.click(link);
+
+    expect(screen.getByTestId('copy-labels-from-service-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('copy-labels-service-card-svc-1')).toBeInTheDocument();
+    expect(screen.getByTestId('copy-labels-service-card-svc-2')).toBeInTheDocument();
+  });
+
   it('shows BrokerService label keys as options in the key dropdown', async () => {
     const user = userEvent.setup();
     render(<SelectorSectionWrapper />);
